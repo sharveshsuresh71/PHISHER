@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PhishGuard — AI Phishing Email Detector</title>
+  <meta name="description" content="Paste an email and PhishGuard's ML model scores it for phishing, with a live 3D threat visualisation.">
+  <meta name="theme-color" content="#05030a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l10 26H6z' fill='%239b6bff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Saira+Condensed:wght@200;300;400;600&family=Saira:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script type="importmap">
+  { "imports": {
+      "three": "/static/vendor/three/three.module.js",
+      "three/addons/": "/static/vendor/three/addons/"
+  } }
+  </script>
+</head>
+<body data-state="idle">
+  <canvas id="stage" aria-hidden="true"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="pill" href="#top" aria-label="PhishGuard home"><span class="tri"></span><span>MENU</span></a>
+    <nav>
+      <a href="#detect">Detector <i></i></a>
+      <a href="#telemetry">Model telemetry <i></i></a>
+      <a href="#how">How it works <i></i></a>
+    </nav>
+    <div class="status"><span class="dot"></span><span id="status-text">CONNECTING</span></div>
+  </header>
+
+  <main id="top">
+    <!-- HERO -->
+    <section class="hero">
+      <p class="eyebrow reveal">AI · EMAIL SECURITY · LIVE 3D</p>
+      <h1 class="title" aria-label="PhishGuard"><span>P</span><span>H</span><span>I</span><span>S</span><span>H</span><span>G</span><span>U</span><span>A</span><span>R</span><span>D</span></h1>
+      <p class="tagline reveal">Machine-learning phishing detection that shows its work — scoring every email on text, links and sender trust.</p>
+      <a class="cta reveal" href="#detect"><span>Scan an email</span><b>↓</b></a>
+
+      <div class="hud reveal">
+        <div class="hud-block"><small>MODEL</small><strong id="h-model">—</strong></div>
+        <div class="hud-block"><small>ACCURACY</small><strong><span data-count id="h-acc" data-suffix="%">—</span></strong></div>
+        <div class="hud-block"><small>EMAILS TRAINED</small><strong><span data-count id="h-emails">—</span></strong></div>
+        <div class="hud-block"><small>FEATURES</small><strong><span data-count id="h-feat">—</span></strong></div>
+      </div>
+    </section>
+
+    <!-- DETECTOR -->
+    <section class="detect" id="detect">
+      <div class="col col-input reveal">
+        <div class="card" id="input-card">
+          <div class="card-head"><span>01 / INPUT</span><span class="mono dim">CTRL + ENTER to scan</span></div>
+          <div class="chips" id="samples" aria-label="Sample emails"></div>
+          <label class="field"><span>Sender</span>
+            <input id="sender" type="text" placeholder="support@paypal-security.tk" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>Subject</span>
+            <input id="subject" type="text" placeholder="Urgent: verify your account" autocomplete="off"></label>
+          <label class="field"><span>Body</span>
+            <textarea id="body" rows="9" placeholder="Paste the email text here, including any links…" spellcheck="false"></textarea></label>
+          <div class="actions">
+            <button class="btn primary" id="analyze"><span class="btn-label">Analyze email</span><span class="btn-glow"></span></button>
+            <button class="btn ghost" id="clear" type="button">Clear</button>
+          </div>
+          <div class="scanline" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <div class="col col-core">
+        <div class="readout" aria-live="polite">
+          <small class="mono" id="r-sub">STANDBY</small>
+          <div class="verdict" id="verdict">AWAITING</div>
+          <div class="score"><span id="score-num">0.0</span><em>% phishing risk</em></div>
+          <div class="meter"><i id="meter-fill"></i></div>
+        </div>
+      </div>
+
+      <div class="col col-output reveal">
+        <div class="card" id="output-card">
+          <div class="card-head"><span>02 / EVIDENCE</span><span class="mono dim" id="model-name">—</span></div>
+          <div class="empty" id="empty">
+            <div class="orbit"><i></i><i></i><i></i></div>
+            <p>No email scanned yet.<br><span>Pick a sample or paste one to see why it's flagged.</span></p>
+          </div>
+          <div class="results" id="results" hidden>
+            <h3>Signals</h3>
+            <ul class="signals" id="signals"></ul>
+            <div id="terms-wrap" hidden><h3>Suspicious wording</h3><div class="terms" id="terms"></div></div>
+            <div id="urls-wrap" hidden><h3>Links found</h3><ul class="urls" id="urls"></ul></div>
+          </div>
+          <p class="error" id="error" role="alert" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TELEMETRY -->
+    <section class="telemetry" id="telemetry">
+      <div class="sec-head reveal"><small>03</small><h2>Model telemetry</h2><p>Measured on a held-out test split the model never saw during training or model selection.</p></div>
+      <div class="tele-grid">
+        <div class="card tilt reveal" id="metric-card"></div>
+        <div class="card tilt reveal">
+          <div class="card-head"><span>CONFUSION MATRIX</span><span class="mono dim">rows = actual</span></div>
+          <div class="cm" id="cm"></div>
+        </div>
+      </div>
+      <p class="note reveal">Heads-up: the bundled dataset is <b>synthetic</b>, so scores are near-perfect by design. Swap in a real corpus (see README) for realistic numbers.</p>
+    </section>
+
+    <!-- HOW -->
+    <section class="how" id="how">
+      <div class="sec-head reveal"><small>04</small><h2>How it works</h2></div>
+      <div class="steps">
+        <article class="card tilt reveal"><b>01</b><h4>Parse</h4><p>Extracts links, sender domain, brand mentions and urgency language from the raw email.</p></article>
+        <article class="card tilt reveal"><b>02</b><h4>Featurise</h4><p>Combines TF-IDF text features with 21 handcrafted signals — look-alike domains, IP links, shorteners, bad TLDs.</p></article>
+        <article class="card tilt reveal"><b>03</b><h4>Classify</h4><p>A cross-validated Logistic Regression / Random Forest picks the phishing probability.</p></article>
+        <article class="card tilt reveal"><b>04</b><h4>Explain</h4><p>Every verdict ships with the exact red (and green) flags behind it — no black box.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot"><span>PHISHGUARD</span><span class="dim">Local ML · your emails never leave this server</span></footer>
+
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

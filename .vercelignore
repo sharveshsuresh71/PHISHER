@@ -1,0 +1,8 @@
+tests/
+presentation.pdf
+emails_dataset.csv
+confusion_matrix.png
+.venv/
+__pycache__/
+*.bat
+run.sh
