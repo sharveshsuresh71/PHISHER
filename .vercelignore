@@ -6,3 +6,4 @@ confusion_matrix.png
 __pycache__/
 *.bat
 run.sh
+.env

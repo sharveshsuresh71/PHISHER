@@ -219,6 +219,7 @@ export function createScene(canvas) {
   function pulse() { shockT = 0; burst = 1; }
   // voice agent hooks: setSpeaking(true/false) while talking, beat() on every spoken word
   function setSpeaking(on) { speaking = !!on; if (!on) voiceT = 0; }
+  function level(v) { voiceT = Math.min(1, Math.max(0, v)); } // real audio loudness 0..1
   function beat(strength = 1) { voiceT = Math.min(1, 0.55 + 0.45 * strength); }
   function setScroll(p) { scrollP = Math.min(Math.max(p, 0), 1); }
 
@@ -315,5 +316,5 @@ export function createScene(canvas) {
     else if (!running) { running = true; clock.getDelta(); frame(); }
   });
 
-  return { setState, pulse, setScroll, setSpeaking, beat, renderer };
+  return { setState, pulse, setScroll, setSpeaking, beat, level, renderer };
 }

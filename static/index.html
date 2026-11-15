@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PhishGuard — AI Phishing Email Detector</title>
   <meta name="description" content="Paste an email, website or screenshot and PhishGuard's ML model scores it for phishing, with a live 3D threat visualisation.">
+  <meta name="author" content="Sharvesh — Shark Webs">
   <meta name="theme-color" content="#05030a">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l10 26H6z' fill='%239b6bff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +19,34 @@
   } }
   </script>
 </head>
-<body data-state="idle">
+<body data-state="idle" class="booting">
+  <div id="splash" role="status" aria-live="polite" aria-label="Loading PhishGuard by Sharvesh, Shark Webs">
+    <div class="sp-glow" aria-hidden="true"></div>
+    <div class="sp-stage">
+      <svg class="sp-sea" viewBox="0 0 600 190" aria-hidden="true">
+        <defs>
+          <linearGradient id="spg" x1="0" x2="1"><stop offset="0" stop-color="#5b94ff" stop-opacity="0"/><stop offset=".5" stop-color="#d9c2ff"/><stop offset="1" stop-color="#9b6bff" stop-opacity="0"/></linearGradient>
+        </defs>
+        <g transform="translate(0 100)">
+          <g class="sp-fin-track">
+            <path class="sp-wake" d="M-6 2 L-170 14 M-6 2 L-170 -6" fill="none" stroke="#d9c2ff" stroke-width="1.4" stroke-linecap="round"/>
+            <g class="sp-fin"><path d="M44 0C30-40 8-70-16-88-14-56-26-24-54 0Z" fill="#0b0618" stroke="#d9c2ff" stroke-width="2" stroke-linejoin="round"/><path d="M38-8C26-38 8-62-10-80" fill="none" stroke="#9b6bff" stroke-opacity=".6" stroke-width="1.5"/></g>
+          </g>
+          <path class="sp-wave w1" id="sp-w1" fill="none" stroke="url(#spg)" stroke-width="2.2"/>
+          <path class="sp-wave w2" id="sp-w2" fill="none" stroke="url(#spg)" stroke-width="1.2" opacity=".5"/>
+        </g>
+      </svg>
+      <h2 class="sp-brand" aria-hidden="true"><span>S</span><span>H</span><span>A</span><span>R</span><span>K</span><span class="sp-gap"></span><span>W</span><span>E</span><span>B</span><span>S</span></h2>
+      <p class="sp-by">Created by <b>Sharvesh</b></p>
+      <div class="sp-load">
+        <div class="sp-bar"><i id="sp-fill"></i></div>
+        <div class="sp-meta"><span id="sp-msg">Waking the threat engine…</span><span id="sp-pct">0%</span></div>
+      </div>
+      <p class="sp-app">PHISHGUARD</p>
+    </div>
+    <button class="sp-skip" id="sp-skip" type="button" hidden>Skip ↵</button>
+  </div>
+
   <canvas id="stage" aria-hidden="true"></canvas>
   <div class="vignette" aria-hidden="true"></div>
   <div class="cursor-glow" aria-hidden="true"></div>
@@ -161,8 +189,56 @@
     </section>
   </main>
 
-  <footer class="foot"><span>PHISHGUARD</span><span class="dim">Local ML · your emails never leave this server (voice uses your browser)</span></footer>
+  <footer class="foot"><span>PHISHGUARD <b class="credit">· Created by Sharvesh · Shark Webs</b></span><span class="dim">Local ML · your emails never leave this server (voice uses your browser)</span></footer>
 
+  <script>
+  /* Intro screen: shows the Shark Webs credit while the app really loads, then slices away. */
+  (() => {
+    const root = document.getElementById('splash'), body = document.body;
+    let done, seen = false;
+    window.__splashDone = new Promise((r) => { done = r; });
+    try { seen = sessionStorage.getItem('pg-splash') === '1'; } catch {}
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (seen && location.hash === '') { root.remove(); body.classList.remove('booting'); done(); return; }
+    try { sessionStorage.setItem('pg-splash', '1'); } catch {}
+
+    const wave = (n) => 'M-50 0 q25 -' + n + ' 50 0' + ' t50 0'.repeat(26);
+    document.getElementById('sp-w1').setAttribute('d', wave(9));
+    document.getElementById('sp-w2').setAttribute('d', wave(5));
+
+    const MIN = reduced ? 900 : 3000, MAX = 8000, t0 = performance.now();
+    const fill = document.getElementById('sp-fill'), pct = document.getElementById('sp-pct'), msg = document.getElementById('sp-msg');
+    const MSGS = ['Waking the threat engine…', 'Loading the threat crystal…', 'Arming the voice agent…', 'Ready.'];
+    let ready = false, shown = 0, finished = false, last = t0;
+    addEventListener('pg:ready', () => { ready = true; }, { once: true });
+
+    const finish = () => {
+      if (finished) return; finished = true;
+      fill.style.width = '100%'; pct.textContent = '100%'; msg.textContent = MSGS[3];
+      root.classList.add('out');
+      setTimeout(() => { root.remove(); body.classList.remove('booting'); done(); }, reduced ? 150 : 1000);
+    };
+    const tick = (now) => {
+      if (finished) return;
+      const t = now - t0, dt = Math.min(now - last, 250) / 1000; last = now;
+      const timeP = Math.min(t / MIN, 1);
+      const target = ready ? timeP : Math.min(timeP, 0.88);   // real loading gates the last stretch
+      shown += (target - shown) * (1 - Math.exp(-dt * 9));   // frame-rate independent
+      fill.style.width = (shown * 100).toFixed(1) + '%';
+      pct.textContent = Math.round(shown * 100) + '%';
+      msg.textContent = MSGS[Math.min(Math.floor(shown * 3), 2)];
+      if (ready && t >= MIN && shown > 0.97) return finish();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setTimeout(finish, MAX);                                    // hard cap, even if frames are throttled
+    setTimeout(() => { if (ready) finish(); }, MIN + 600);       // never wait on animation frames to leave
+    const skip = document.getElementById('sp-skip');
+    setTimeout(() => { skip.hidden = false; }, 900);
+    skip.addEventListener('click', finish);
+    addEventListener('keydown', (e) => { if (!finished && (e.key === 'Enter' || e.key === 'Escape')) finish(); });
+  })();
+  </script>
   <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

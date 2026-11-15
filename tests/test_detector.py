@@ -123,3 +123,44 @@ def test_ocr_endpoint():
     assert re.search(r"paypa[1l]-account-verify\.com", j["url"])
     assert detector.analyze(j["subject"], j["body"], j["sender"])["verdict"] in ("PHISHING", "SUSPICIOUS")
     assert app.test_client().post("/api/ocr", data={"image": (io.BytesIO(b"nope"), "s.png")}, content_type="multipart/form-data").status_code == 400
+
+
+# ---------- Fish Audio proxy (network mocked) ----------
+import io as _io  # noqa: E402
+import urllib.error  # noqa: E402
+
+
+class _Resp(_io.BytesIO):
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def test_speak_not_configured(monkeypatch):
+    monkeypatch.delenv("FISH_API_KEY", raising=False)
+    c = app.test_client()
+    assert c.get("/api/speak/status").get_json() == {"fish": False}
+    assert c.post("/api/speak", json={"text": "hi"}).status_code == 501
+
+
+def test_speak_proxy(monkeypatch):
+    import app as appmod
+    monkeypatch.setenv("FISH_API_KEY", "k")
+    appmod._hits.clear()
+    seen = {}
+
+    def fake(req, timeout=0):
+        seen["h"] = dict(req.header_items()); seen["b"] = __import__("json").loads(req.data)
+        return _Resp(b"ID3audio")
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake)
+    c = app.test_client()
+    r = c.post("/api/speak", json={"text": "Warning.", "speed": 1.15})
+    assert r.status_code == 200 and r.data == b"ID3audio" and r.mimetype == "audio/mpeg"
+    assert seen["b"]["reference_id"] == "c35aeeb5f9c145199fbffdbc2ef8ed95" and seen["h"]["Authorization"] == "Bearer k"
+    assert c.post("/api/speak", json={"text": "x" * 2000}).status_code == 413
+    assert c.post("/api/speak", json={"text": " "}).status_code == 400
+
+    def boom(req, timeout=0):
+        raise urllib.error.HTTPError("u", 402, "pay", {}, None)
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", boom)
+    r = c.post("/api/speak", json={"text": "hi"})
+    assert r.status_code == 502 and "credit" in r.get_json()["error"] and r.get_json()["fallback"] == "browser"

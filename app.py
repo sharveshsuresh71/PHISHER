@@ -5,14 +5,37 @@ PhishGuard web app — Flask API + 3D front-end.
     PORT=8080 python app.py
 """
 
+import json
 import os
+import time
+import urllib.error
+import urllib.request
+from collections import defaultdict, deque
+from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 import ocr
 import webcheck
 from detector import detector, MAX_FIELD_LEN
 from narrator import narrate
+
+def _load_dotenv():
+    """Tiny .env reader so the Fish Audio key can live in a file next to app.py."""
+    f = Path(__file__).resolve().parent / ".env"
+    if f.exists():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
+
+
+_load_dotenv()
+FISH_URL = "https://api.fish.audio/v1/tts"
+FISH_VOICE = os.environ.get("FISH_VOICE_ID", "c35aeeb5f9c145199fbffdbc2ef8ed95")
+FISH_MODEL = os.environ.get("FISH_MODEL", "s2.1-pro")
+_hits = defaultdict(deque)  # per-IP rate limit so nobody can drain your Fish credits
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # screenshots; JSON fields are capped separately
@@ -114,6 +137,49 @@ def analyze_url():
         return jsonify(error=str(exc)), 400
     result["narration"] = narrate(result)
     return jsonify(result)
+
+
+@app.get("/api/speak/status")
+def speak_status():
+    return jsonify(fish=bool(os.environ.get("FISH_API_KEY")))
+
+
+@app.post("/api/speak")
+def speak():
+    """Text → speech in your Fish Audio reference voice. The API key never leaves the server."""
+    key = os.environ.get("FISH_API_KEY")
+    if not key:
+        return jsonify(error="Fish Audio is not configured.", fallback="browser"), 501
+    data = request.get_json(silent=True)
+    text = data.get("text") if isinstance(data, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return jsonify(error="No text to speak."), 400
+    if len(text) > 1500:
+        return jsonify(error="Text too long (1500 characters max)."), 413
+    now, q = time.time(), _hits[request.remote_addr]
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= 30:
+        return jsonify(error="Too many voice requests — wait a minute."), 429
+    q.append(now)
+    try:
+        speed = min(max(float(data.get("speed", 1)), 0.7), 1.4)
+    except (TypeError, ValueError):
+        speed = 1.0
+    body = json.dumps({"text": text.strip(), "reference_id": FISH_VOICE, "format": "mp3",
+                       "latency": "balanced", "prosody": {"speed": speed}}).encode()
+    req = urllib.request.Request(FISH_URL, data=body, method="POST", headers={
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json", "model": FISH_MODEL})
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            audio = r.read()
+    except urllib.error.HTTPError as exc:
+        msg = {401: "Fish Audio rejected the API key.", 402: "Fish Audio account is out of credit."}.get(
+            exc.code, f"Fish Audio error ({exc.code}).")
+        return jsonify(error=msg, fallback="browser"), 502
+    except Exception:
+        return jsonify(error="Could not reach Fish Audio.", fallback="browser"), 502
+    return Response(audio, mimetype="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/ocr/status")

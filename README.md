@@ -22,9 +22,16 @@ optional Google Fonts. Run the tests with `python -m pytest tests`.
 | JSON API | `POST /api/analyze` `{"subject","sender","body"}` → verdict, score, signals, links |
 | Retrain | `python train.py` (rewrites model files, `metrics.json`, `confusion_matrix.png`) |
 
+*Created by Sharvesh · Shark Webs*
+
+## Intro screen
+
+On first open of each browser session a Shark Webs intro plays (a shark fin cuts through the waves, the wordmark and “Created by Sharvesh” appear) while the app genuinely loads, then the screen splits open. Click **Skip** or press Enter/Esc to skip; it respects reduced-motion. Edit the text in `static/index.html` (`#splash`).
+
 ## Voice, websites and screenshots
 
 - **Voice agent** — after every scan the app *speaks* a short briefing: the verdict, the biggest security risks and why each one is dangerous, then what to do. It uses your browser's built-in speech (nothing is sent anywhere); the crystal pulses with each spoken word. Auto-speak, voice and speed are on the result panel; Esc stops it.
+- **Your own voice (Fish Audio, optional)** — copy `.env.example` to `.env` and set `FISH_API_KEY` (your voice ID is pre-filled). The server then speaks every briefing in your reference voice via `/api/speak`; the key never reaches the browser. Without a key it uses the browser voice. Each scan costs a few Fish credits; requests are rate-limited to 30/min per IP.
 - **Website tab** — paste any address (`POST /api/analyze-url {"url": ...}`). The site is never opened; the address is judged for look-alike brand names, brand-in-subdomain tricks, raw IPs, punycode, shorteners, risky endings, `@` tricks, bait words and more.
 - **Screenshots** — drop, browse or press Ctrl+V to paste an image of an email or page (`POST /api/ocr`). Text is read with Tesseract (`apt install tesseract-ocr` / `brew install tesseract` / Windows installer); if the server has none, the browser falls back to tesseract.js (needs internet). OCR can mix up 1/l and 0/O, so the extracted text is editable before re-scanning.
 

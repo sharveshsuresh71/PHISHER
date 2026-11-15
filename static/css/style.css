@@ -338,3 +338,50 @@ body.speaking .wave i { opacity: 1; animation: wave .9s ease-in-out infinite; an
   body.speaking .wave i { animation: none; height: 14px; }
   .tab-ink, .drop { transition: none; }
 }
+
+/* ---------- intro / loading screen ---------- */
+body.booting { overflow: hidden; }
+body.booting .title span { animation-play-state: paused; }
+#splash { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #05030a; overflow: hidden; color: var(--ink); }
+.sp-glow { position: absolute; inset: -20%; background: radial-gradient(ellipse 50% 40% at 50% 52%, rgba(155, 107, 255, .28), transparent 70%), radial-gradient(ellipse 30% 22% at 50% 60%, rgba(91, 148, 255, .18), transparent 70%); animation: spGlow 4s ease-in-out infinite alternate; }
+@keyframes spGlow { to { transform: scale(1.08); opacity: .8; } }
+.sp-stage { position: relative; width: min(560px, 88vw); text-align: center; display: flex; flex-direction: column; align-items: center; }
+.sp-sea { width: 100%; height: auto; overflow: hidden; margin-bottom: -6px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+.sp-wave { stroke-linecap: round; }
+.sp-wave.w1 { animation: spDrift 2.6s linear infinite; }
+.sp-wave.w2 { animation: spDrift 4.2s linear infinite reverse; }
+@keyframes spDrift { to { transform: translateX(100px); } }
+.sp-fin-track { animation: spSwim 2.9s cubic-bezier(.45, .05, .25, 1) .35s both; }
+@keyframes spSwim { from { transform: translateX(-60px); } to { transform: translateX(700px); } }
+.sp-fin { animation: spBob .7s ease-in-out infinite alternate; transform-origin: 0 0; }
+@keyframes spBob { from { transform: rotate(-2deg) translateY(0); } to { transform: rotate(3deg) translateY(2px); } }
+.sp-wake { opacity: .4; }
+.sp-brand { display: flex; justify-content: center; gap: .04em; margin-top: 18px; font: 200 clamp(44px, 10vw, 84px)/1 var(--font-display); letter-spacing: .14em; text-indent: .14em; text-shadow: 0 0 36px rgba(155, 107, 255, .65); }
+.sp-brand span { display: inline-block; opacity: 0; transform: translateY(26px) scaleY(1.4); filter: blur(8px); animation: spLetter .9s var(--ease) forwards; }
+.sp-brand span:nth-child(1) { animation-delay: 1.0s } .sp-brand span:nth-child(2) { animation-delay: 1.07s } .sp-brand span:nth-child(3) { animation-delay: 1.14s } .sp-brand span:nth-child(4) { animation-delay: 1.21s } .sp-brand span:nth-child(5) { animation-delay: 1.28s }
+.sp-brand span:nth-child(7) { animation-delay: 1.4s } .sp-brand span:nth-child(8) { animation-delay: 1.47s } .sp-brand span:nth-child(9) { animation-delay: 1.54s } .sp-brand span:nth-child(10) { animation-delay: 1.61s }
+.sp-gap { width: .3em; }
+@keyframes spLetter { to { opacity: 1; transform: none; filter: none; } }
+.sp-by { margin-top: 14px; font: 400 12px/1 var(--font-mono); letter-spacing: .34em; text-transform: uppercase; color: var(--muted); opacity: 0; animation: spFade .8s ease 2s forwards; }
+.sp-by b { color: var(--accent-2); font-weight: 500; text-shadow: 0 0 18px var(--accent); }
+.sp-load { width: min(360px, 80vw); margin-top: 38px; opacity: 0; animation: spFade .6s ease 1.5s forwards; }
+.sp-bar { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.sp-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5b94ff, #d9c2ff); box-shadow: 0 0 14px #9b6bff; }
+.sp-meta { display: flex; justify-content: space-between; margin-top: 10px; font: 400 10px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.sp-app { margin-top: 28px; font: 400 10px/1 var(--font-mono); letter-spacing: .5em; color: var(--dim); opacity: 0; animation: spFade .8s ease 2.3s forwards; }
+@keyframes spFade { to { opacity: 1; } }
+.sp-skip { position: absolute; right: clamp(16px, 4vw, 40px); bottom: clamp(16px, 4vh, 36px); padding: 9px 16px; border: 1px solid var(--line); border-radius: 99px; background: transparent; color: var(--muted); cursor: pointer; font: 400 10px/1 var(--font-mono); letter-spacing: .2em; text-transform: uppercase; transition: color .2s, border-color .2s; }
+.sp-skip:hover, .sp-skip:focus-visible { color: var(--ink); border-color: var(--accent); outline: none; }
+/* exit: the screen splits open like a gate, revealing the app */
+#splash::before, #splash::after { content: ''; position: absolute; left: 0; right: 0; height: 50.5%; background: #05030a; z-index: 0; transition: transform .9s cubic-bezier(.7, 0, .2, 1); }
+#splash::before { top: 0; } #splash::after { bottom: 0; }
+#splash .sp-glow, #splash .sp-stage, #splash .sp-skip { z-index: 1; }
+#splash.out { background: transparent; pointer-events: none; }
+#splash.out::before { transform: translateY(-101%); } #splash.out::after { transform: translateY(101%); }
+#splash.out .sp-glow, #splash.out .sp-stage, #splash.out .sp-skip { opacity: 0; transition: opacity .35s ease; }
+.credit { font-weight: 400; color: var(--dim); letter-spacing: .12em; }
+@media (prefers-reduced-motion: reduce) {
+  .sp-fin-track { animation-duration: .01s; animation-delay: 0s; transform: translateX(300px); }
+  .sp-brand span, .sp-by, .sp-load, .sp-app { animation-delay: 0s !important; animation-duration: .01s !important; }
+  .sp-wave, .sp-fin, .sp-glow { animation: none; }
+}

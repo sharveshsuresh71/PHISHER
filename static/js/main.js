@@ -78,10 +78,10 @@ addEventListener('scroll', onScroll, { passive: true });
 const io = new IntersectionObserver((entries) => {
   entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
 }, { threshold: 0.12 });
-document.querySelectorAll('.reveal').forEach((n, i) => {
+(window.__splashDone || Promise.resolve()).then(() => document.querySelectorAll('.reveal').forEach((n, i) => {
   n.style.setProperty('--d', (i % 4) * 90 + 'ms');
   io.observe(n);
-});
+}));
 
 // 3D tilt on cards
 if (!reduced && matchMedia('(hover: hover)').matches) {
@@ -189,24 +189,90 @@ async function loadSamples() {
 /* ---------- voice agent (speech output only) ---------- */
 const voiceUI = { box: $('#voice'), btn: $('#speak'), label: $('#speak-label'), auto: $('#auto'), pick: $('#voice-pick'), rate: $('#rate'), cap: $('#caption') };
 const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
-let narration = null, speakToken = 0, voices = [];
+let narration = null, speakToken = 0, voices = [], fish = false;
 const store = {
   get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
 };
 
 function loadVoices() {
-  if (!synth) return;
-  voices = synth.getVoices().filter((v) => /^en/i.test(v.lang));
-  if (!voices.length) voices = synth.getVoices();
+  if (!synth && !fish) return;
+  voices = (synth ? synth.getVoices() : []).filter((v) => /^en/i.test(v.lang));
+  if (!voices.length && synth) voices = synth.getVoices();
   const saved = store.get('pg-voice', '');
-  voiceUI.pick.replaceChildren(...voices.map((v) => el('option', { value: v.voiceURI, text: v.name.replace(/Microsoft |Google /, '') + (v.localService ? '' : ' ☁') })));
+  voiceUI.pick.replaceChildren(...(fish ? [el('option', { value: 'fish', text: 'Your voice (Fish Audio)' })] : []), ...voices.map((v) => el('option', { value: v.voiceURI, text: v.name.replace(/Microsoft |Google /, '') + (v.localService ? '' : ' ☁') })));
   const pref = voices.find((v) => v.voiceURI === saved)
     || voices.find((v) => /natural|neural|samantha|google uk english female|aria|jenny/i.test(v.name))
     || voices.find((v) => v.default) || voices[0];
-  if (pref) voiceUI.pick.value = pref.voiceURI;
+  if (fish && (!saved || saved === 'fish')) voiceUI.pick.value = 'fish';
+  else if (pref) voiceUI.pick.value = pref.voiceURI;
 }
 if (synth) { loadVoices(); synth.addEventListener?.('voiceschanged', loadVoices); }
+api('/api/speak/status').then((r) => { fish = !!r.fish; loadVoices(); }).catch(() => {});
+
+/* Fish Audio: server returns mp3 in your reference voice; the crystal follows the real loudness */
+const audioEl = new Audio();
+let actx = null, analyser = null, meterOn = false;
+function hookAnalyser() {
+  if (actx) { actx.resume?.(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(audioEl);
+    analyser = actx.createAnalyser(); analyser.fftSize = 512;
+    src.connect(analyser); analyser.connect(actx.destination);
+  } catch { actx = analyser = null; }
+}
+function meter() {
+  if (meterOn || !analyser) return;
+  meterOn = true;
+  const buf = new Uint8Array(analyser.fftSize);
+  const loop = () => {
+    if (!document.body.classList.contains('speaking')) { meterOn = false; return; }
+    analyser.getByteTimeDomainData(buf);
+    let sum = 0; for (const v of buf) { const x = (v - 128) / 128; sum += x * x; }
+    scene?.level(Math.sqrt(sum / buf.length) * 5);
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+async function fetchVoice(text) {
+  const res = await fetch('/api/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, speed: parseFloat(voiceUI.rate.value) || 1 }) });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'voice failed');
+  return URL.createObjectURL(await res.blob());
+}
+async function speakFish(n) {
+  const token = ++speakToken;
+  synth?.cancel();
+  setSpeaking(true);
+  hookAnalyser();
+  const jobs = n.chunks.map(() => null);
+  const get = (i) => (jobs[i] ??= fetchVoice(n.chunks[i]));
+  get(0).catch(() => {});
+  for (let i = 0; i < n.chunks.length; i++) {
+    let url;
+    try { url = await get(i); } catch (err) {
+      if (token !== speakToken) return;
+      if (i === 0) { showError(err.message + ' Using the browser voice instead.'); speakBrowser(n); return; }
+      break;
+    }
+    if (token !== speakToken) { URL.revokeObjectURL(url); return; }
+    if (i + 1 < n.chunks.length) get(i + 1).catch(() => {}); // prefetch the next sentence group
+    voiceUI.cap.textContent = n.chunks[i];
+    audioEl.src = url;
+    try {
+      await audioEl.play();
+      meter();
+      await new Promise((resolve) => { audioEl.onended = resolve; audioEl.onerror = resolve; audioEl.onpause = () => { if (token !== speakToken) resolve(); }; });
+    } catch { break; }
+    URL.revokeObjectURL(url);
+  }
+  if (token === speakToken) setSpeaking(false);
+}
+function speak(n) {
+  if (!n?.chunks?.length) return;
+  if (fish && voiceUI.pick.value === 'fish') speakFish(n); else speakBrowser(n);
+}
 voiceUI.auto.checked = store.get('pg-auto', '1') === '1';
 voiceUI.rate.value = store.get('pg-rate', '1');
 voiceUI.auto.addEventListener('change', () => store.set('pg-auto', voiceUI.auto.checked ? '1' : '0'));
@@ -223,10 +289,11 @@ function setSpeaking(on) {
 function stopSpeaking() {
   speakToken++;
   synth?.cancel();
+  audioEl.pause();
   setSpeaking(false);
 }
 
-function speak(n) {
+function speakBrowser(n) {
   if (!synth || !n?.chunks?.length) return;
   synth.cancel();
   const token = ++speakToken;
@@ -349,10 +416,10 @@ async function render(r) {
 
   // voice briefing
   narration = r.narration || null;
-  voiceUI.box.hidden = !synth || !narration;
+  voiceUI.box.hidden = (!synth && !fish) || !narration;
   voiceUI.cap.textContent = '';
   setSpeaking(false);
-  if (narration && synth && voiceUI.auto.checked) { await sleep(reduced ? 0 : 450); speak(narration); }
+  if (narration && (synth || fish) && voiceUI.auto.checked) { await sleep(reduced ? 0 : 450); speak(narration); }
 
   if (innerWidth < 1100) $('#output-card').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
 }
@@ -455,7 +522,9 @@ addEventListener('paste', (e) => {
 });
 
 setMode('email');
-loadStatus();
-loadStats();
-loadSamples();
 onScroll();
+// tell the intro screen when the app is genuinely ready (API answered + fonts settled)
+Promise.allSettled([
+  Promise.all([loadStatus(), loadStats(), loadSamples()]),
+  Promise.race([document.fonts?.ready, sleep(2500)]),
+]).then(() => requestAnimationFrame(() => dispatchEvent(new Event('pg:ready'))));
