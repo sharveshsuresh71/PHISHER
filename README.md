@@ -22,6 +22,12 @@ optional Google Fonts. Run the tests with `python -m pytest tests`.
 | JSON API | `POST /api/analyze` `{"subject","sender","body"}` → verdict, score, signals, links |
 | Retrain | `python train.py` (rewrites model files, `metrics.json`, `confusion_matrix.png`) |
 
+## Voice, websites and screenshots
+
+- **Voice agent** — after every scan the app *speaks* a short briefing: the verdict, the biggest security risks and why each one is dangerous, then what to do. It uses your browser's built-in speech (nothing is sent anywhere); the crystal pulses with each spoken word. Auto-speak, voice and speed are on the result panel; Esc stops it.
+- **Website tab** — paste any address (`POST /api/analyze-url {"url": ...}`). The site is never opened; the address is judged for look-alike brand names, brand-in-subdomain tricks, raw IPs, punycode, shorteners, risky endings, `@` tricks, bait words and more.
+- **Screenshots** — drop, browse or press Ctrl+V to paste an image of an email or page (`POST /api/ocr`). Text is read with Tesseract (`apt install tesseract-ocr` / `brew install tesseract` / Windows installer); if the server has none, the browser falls back to tesseract.js (needs internet). OCR can mix up 1/l and 0/O, so the extracted text is editable before re-scanning.
+
 ## What was fixed in this upgrade
 
 - **Fake 100% accuracy** — the old dataset was a few copy-pasted templates, so train and test were near-identical. The generator now composes thousands of varied emails (no duplicates), including *hard negatives* (legit "urgent"/"password"/verification-code mails and real brand mails) and *hard positives* (link-less CEO fraud, free-mail senders, typosquats).
@@ -37,6 +43,7 @@ optional Google Fonts. Run the tests with `python -m pytest tests`.
 | File | Purpose |
 |---|---|
 | `app.py` | Flask server + JSON API |
+| `webcheck.py` / `narrator.py` / `ocr.py` | Website scoring, spoken briefing text, screenshot OCR |
 | `detector.py` | Loads the model, scores an email, produces the explanation |
 | `static/` | Front-end: `index.html`, `css/style.css`, `js/main.js` (UI), `js/scene.js` (three.js scene), `vendor/three` (bundled three.js r160) |
 | `dataset.py` | Synthetic labeled dataset generator (2,000 emails by default) |

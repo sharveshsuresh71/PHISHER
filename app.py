@@ -9,10 +9,13 @@ import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import ocr
+import webcheck
 from detector import detector, MAX_FIELD_LEN
+from narrator import narrate
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-app.config["MAX_CONTENT_LENGTH"] = 256 * 1024  # reject huge uploads
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # screenshots; JSON fields are capped separately
 
 SAMPLES = [
     {"id": "paypal", "label": "PayPal scam", "subject": "Urgent: Your PayPal account has been suspended",
@@ -41,6 +44,20 @@ SAMPLES = [
      "body": "A new sign-in to your Google account was detected on a Windows device. If this was you, you don't "
              "need to do anything.\n\nhttps://accounts.google.com/security"},
 ]
+
+
+SITE_SAMPLES = [
+    {"label": "Fake PayPal login", "url": "http://paypa1-account-verify.com/signin?verify=1"},
+    {"label": "Brand in subdomain", "url": "https://paypal.com.secure-login.verify-id.xyz/update"},
+    {"label": "Raw IP login", "url": "http://185.234.12.9:8080/bank/login"},
+    {"label": "Real Google", "url": "https://accounts.google.com/signin"},
+    {"label": "Real GitHub", "url": "https://github.com/anthropics"},
+]
+
+
+@app.get("/api/site-samples")
+def site_samples():
+    return jsonify(SITE_SAMPLES)
 
 
 @app.get("/")
@@ -77,7 +94,50 @@ def analyze():
         return jsonify(error="Paste an email to analyze."), 400
     if any(len(v or "") > MAX_FIELD_LEN for v in fields.values()):
         return jsonify(error=f"Each field is limited to {MAX_FIELD_LEN} characters."), 413
-    return jsonify(detector.analyze(**fields))
+    result = detector.analyze(**fields)
+    result["kind"] = "email"
+    result["narration"] = narrate(result)
+    return jsonify(result)
+
+
+@app.post("/api/analyze-url")
+def analyze_url():
+    data = request.get_json(silent=True)
+    url = data.get("url") if isinstance(data, dict) else None
+    if not isinstance(url, str) or not url.strip():
+        return jsonify(error="Enter a website address to check."), 400
+    if len(url) > webcheck.MAX_URL_LEN:
+        return jsonify(error="That address is too long."), 413
+    try:
+        result = webcheck.analyze_url(url)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    result["narration"] = narrate(result)
+    return jsonify(result)
+
+
+@app.get("/api/ocr/status")
+def ocr_status():
+    return jsonify(server_ocr=ocr.available())
+
+
+@app.post("/api/ocr")
+def ocr_image():
+    """Screenshot → text. Returns an email split and any URL found."""
+    f = request.files.get("image")
+    if f is None:
+        return jsonify(error="Attach an image in the 'image' field."), 400
+    if not ocr.available():
+        return jsonify(error="Server OCR is not installed.", fallback="browser"), 501
+    try:
+        text = ocr.image_to_text(f.read())
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception:
+        return jsonify(error="Could not read text from that image."), 500
+    if not text.strip():
+        return jsonify(error="No readable text found in that image."), 422
+    return jsonify(text=text, url=webcheck.find_url(text), **ocr.split_email(text))
 
 
 @app.errorhandler(413)

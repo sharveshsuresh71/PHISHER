@@ -58,3 +58,68 @@ def test_api():
     assert c.post("/api/analyze", json={"body": "x" * 30000}).status_code == 413
     r = c.post("/api/analyze", json={"subject": "Verify now", "sender": "a@paypal-security.tk", "body": "http://192.168.1.1/login"})
     assert r.status_code == 200 and r.get_json()["verdict"] == "PHISHING"
+
+
+# ---------- website analysis, narration, OCR ----------
+import webcheck  # noqa: E402
+import ocr  # noqa: E402
+
+BAD_SITES = ["http://paypa1-account-verify.com/signin", "https://paypal.com.secure-login.verify-id.xyz/update",
+             "http://185.234.12.9:8080/bank/login", "http://xn--pypal-4ve.com/login"]
+GOOD_SITES = ["https://accounts.google.com/signin", "https://github.com/anthropics", "https://www.amazon.in/gp/css/order",
+              "https://news.bbc.co.uk/sport", "https://example.com/"]
+
+
+@pytest.mark.parametrize("u", BAD_SITES)
+def test_bad_sites_flagged(u):
+    assert webcheck.analyze_url(u)["verdict"] == "PHISHING"
+
+
+@pytest.mark.parametrize("u", GOOD_SITES)
+def test_good_sites_safe(u):
+    assert webcheck.analyze_url(u)["verdict"] == "SAFE"
+
+
+def test_url_api_and_narration():
+    c = app.test_client()
+    assert c.post("/api/analyze-url", json={}).status_code == 400
+    assert c.post("/api/analyze-url", json={"url": "hello"}).status_code == 400
+    r = c.post("/api/analyze-url", json={"url": "http://paypa1-account-verify.com/signin"}).get_json()
+    assert r["verdict"] == "PHISHING" and r["narration"]["chunks"] and "Warning" in r["narration"]["text"]
+    e = c.post("/api/analyze", json={"subject": "x", "sender": "a@paypal-security.tk", "body": "http://192.168.1.1/login"}).get_json()
+    assert e["narration"]["text"] and e["kind"] == "email"
+
+
+def test_find_url():
+    assert webcheck.find_url("go to https://evil.tk/login, now") == "https://evil.tk/login"
+    assert webcheck.find_url("see paypa1-secure.com/verify") == "paypa1-secure.com/verify"
+
+
+def test_split_email():
+    d = ocr.split_email("From: Support <support@paypa1.com>\nSubject: Verify now\n\nClick http://x.tk")
+    assert d["sender"] == "support@paypa1.com" and d["subject"] == "Verify now" and d["body"].startswith("Click")
+
+
+@pytest.mark.skipif(not ocr.available(), reason="tesseract not installed")
+def test_ocr_endpoint():
+    import io
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (900, 260), "white")
+    d = ImageDraw.Draw(img)
+    try:
+        f = ImageFont.truetype("DejaVuSans.ttf", 28)
+    except OSError:
+        f = ImageFont.load_default()
+    d.text((20, 20), "From: security@paypa1-account-verify.com", fill="black", font=f)
+    d.text((20, 80), "Subject: Verify your account immediately", fill="black", font=f)
+    d.text((20, 150), "Login now: http://paypa1-account-verify.com/signin", fill="black", font=f)
+    buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
+    r = app.test_client().post("/api/ocr", data={"image": (buf, "s.png")}, content_type="multipart/form-data")
+    j = r.get_json()
+    assert r.status_code == 200, j
+    # OCR may read a look-alike "1" as "l" — either way the fake domain must still be caught
+    import re
+    assert re.search(r"paypa[1l]-account-verify\.com", j["sender"]) and "immediately" in j["subject"].lower()
+    assert re.search(r"paypa[1l]-account-verify\.com", j["url"])
+    assert detector.analyze(j["subject"], j["body"], j["sender"])["verdict"] in ("PHISHING", "SUSPICIOUS")
+    assert app.test_client().post("/api/ocr", data={"image": (io.BytesIO(b"nope"), "s.png")}, content_type="multipart/form-data").status_code == 400

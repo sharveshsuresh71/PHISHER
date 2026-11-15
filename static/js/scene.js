@@ -203,6 +203,7 @@ export function createScene(canvas) {
   };
   let tgt = { ...STATES.idle, a: new THREE.Color(STATES.idle.a), b: new THREE.Color(STATES.idle.b) };
   let shockT = 1, shake = 0, burst = 0, scrollP = 0, spinAngle = 0;
+  let speaking = false, voice = 0, voiceT = 0; // voice: smoothed loudness 0..1
   const pointer = { x: 0, y: 0, sx: 0, sy: 0 };
 
   function setState(name, score = 0.5) {
@@ -216,6 +217,9 @@ export function createScene(canvas) {
     if (name === 'safe' || name === 'phishing' || name === 'suspicious') pulse();
   }
   function pulse() { shockT = 0; burst = 1; }
+  // voice agent hooks: setSpeaking(true/false) while talking, beat() on every spoken word
+  function setSpeaking(on) { speaking = !!on; if (!on) voiceT = 0; }
+  function beat(strength = 1) { voiceT = Math.min(1, 0.55 + 0.45 * strength); }
   function setScroll(p) { scrollP = Math.min(Math.max(p, 0), 1); }
 
   addEventListener('pointermove', (e) => {
@@ -253,10 +257,10 @@ export function createScene(canvas) {
     cur.a.lerp(tgt.a, k); cur.b.lerp(tgt.b, k);
     for (const key of ['disp', 'spike', 'spin', 'radius', 'jitter', 'bloom', 'beam']) cur[key] += (tgt[key] - cur[key]) * k;
 
-    matU.uTime.value = t; matU.uDisp.value = cur.disp; matU.uSpike.value = cur.spike;
+    matU.uTime.value = t; matU.uDisp.value = cur.disp + voice * 0.12; matU.uSpike.value = cur.spike;
     matU.uColA.value.copy(cur.a); matU.uColB.value.copy(cur.b);
     edges.material.uniforms.uColor.value.copy(cur.b);
-    pU.uTime.value = t; pU.uRadius.value = cur.radius; pU.uJitter.value = cur.jitter;
+    pU.uTime.value = t; pU.uRadius.value = cur.radius + voice * 0.1; pU.uJitter.value = cur.jitter;
     pU.uColA.value.copy(cur.a); pU.uColB.value.copy(cur.b);
     starMat.uniforms.uTime.value = t * 0.3;
 
@@ -266,7 +270,11 @@ export function createScene(canvas) {
     pointer.sy += (pointer.y - pointer.sy) * k * 0.6;
     const base = root.userData.base || 1;
     burst *= Math.exp(-dt * 3);
-    const sc = base * (1 + burst * 0.12) * (1 - scrollP * 0.32);
+    // speaking: loudness follows word beats, with a gentle talking shimmer between words
+    voiceT *= Math.exp(-dt * 5);
+    const vTarget = speaking ? Math.max(voiceT, 0.18 + 0.12 * Math.sin(t * 9) ** 2) : 0;
+    voice += (vTarget - voice) * (1 - Math.exp(-dt * 14));
+    const sc = base * (1 + burst * 0.12 + voice * 0.07) * (1 - scrollP * 0.32);
     root.scale.setScalar(sc);
     root.rotation.y = pointer.sx * 0.35;
     root.rotation.x = pointer.sy * 0.18;
@@ -277,7 +285,7 @@ export function createScene(canvas) {
     root.position.x = Math.sin(t * 70) * 0.03 * shake;
     particles.rotation.y = t * 0.03;
     stars.rotation.y = t * 0.004;
-    core.scale.setScalar(0.9 + 0.25 * Math.sin(t * 2.2) + burst * 0.5);
+    core.scale.setScalar(0.9 + 0.25 * Math.sin(t * 2.2) + burst * 0.5 + voice * 0.9);
     core.material.color.copy(cur.b);
     camera.position.x = pointer.sx * 0.35;
     camera.position.y = -pointer.sy * 0.2;
@@ -297,7 +305,7 @@ export function createScene(canvas) {
     shock.material.opacity = (1 - shockT) * 0.55 * (shockT < 1 ? 1 : 0);
     shock.material.color.copy(cur.b);
 
-    bloom.strength = cur.bloom + burst * 0.35;
+    bloom.strength = cur.bloom + burst * 0.35 + voice * 0.5;
     composer.render();
   }
   frame();
@@ -307,5 +315,5 @@ export function createScene(canvas) {
     else if (!running) { running = true; clock.getDelta(); frame(); }
   });
 
-  return { setState, pulse, setScroll, renderer };
+  return { setState, pulse, setScroll, setSpeaking, beat, renderer };
 }
